@@ -3,17 +3,16 @@ import random
 
 
 class Record:
-    length = 15
+    max_length = 15
     array_of_number = []
     key = 0
 
     def __init__(self, list_of_numbers):
         self.array_of_number = copy.deepcopy(list_of_numbers)
-        if len(self.array_of_number) < 15:
-            for i in range(0, 15-len(self.array_of_number)):
+        if len(self.array_of_number) < self.max_length:
+            for i in range(0, self.max_length - len(self.array_of_number)):
                 self.array_of_number.append(0)
         self.key = sum(self.array_of_number)
-
 
     def from_bytes(self, bytes):
         self.key = int.from_bytes(bytes[0:4], byteorder="little")
@@ -30,15 +29,72 @@ class Record:
 
 
 class SeqFile:
+    file_name = ""
+    byte_buffor = bytearray()
+    count_read_block = 0
+    count_write_block = 0
+    count_read_record = 0
+    count_write_record = 0
+    records_per_block = 0
+
+    def __init__(self, file_name, size_of_block, record_size):
+        self.file_name = file_name
+        file = open(self.file_name, "w")
+        self.file = open(self.file_name, "rb+")
+        self.records_per_block = int(size_of_block / record_size)
+        self.record_size = record_size
+        self.size_of_block = size_of_block
+
     def read_record(self):
-        pass
-    def write_record(self):
-        pass
+        index = self.count_read_record % self.records_per_block
+        if index == 0:
+            self.read_block()
+        record_bytes = self.byte_buffor[index*self.record_size:(index+1)*self.record_size]
+        rec = Record([])
+        rec.from_bytes(record_bytes)
+        self.count_read_record += 1
+        return rec
+
+    def write_record(self, record):
+        index = self.count_write_record % self.records_per_block
+        if index == 0 and self.count_write_record != 0:
+            self.write_block()
+            self.byte_buffor = bytearray()
+        self.byte_buffor.extend(record.to_bytes())
+        self.count_write_record += 1
+
+    def read_block(self):
+        self.byte_buffor = self.file.read(self.size_of_block)
+        self.count_read_block += 1
+
+    def write_block(self):
+        number_of_records_on_block = self.count_write_record % self.records_per_block
+        if number_of_records_on_block == 0:
+            number_of_records_on_block = self.records_per_block
+        number_of_zeros = self.size_of_block - number_of_records_on_block * self.record_size
+        if number_of_zeros == self.size_of_block:
+            return
+        for i in range(0, number_of_zeros):
+            self.byte_buffor.extend(int(0).to_bytes(1, byteorder="little"))
+        self.file.write(self.byte_buffor)
+        self.count_write_block += 1
+
+    def end_writing(self):
+        self.write_block()
+        self.file.seek(0)
+        self.count_write_record = 0
+        self.count_read_block = 0
+
+    def reset_to_write(self):
+        self.file.seek(0)
+        self.count_write_record = 0
+        self.count_read_block = 0
+
+    def close_file(self):
+        self.file.close()
 
 
-def generate_file(nr):
-    file = open("tasma3.bin", "wb")
-
+def generate_file(nr, t):
     for i in range(0, nr):
         number_of_numbers_in_record = random.randint(1, 15)
         array_of_number = []
@@ -47,29 +103,22 @@ def generate_file(nr):
         for i in range(0, 15-number_of_numbers_in_record):
             array_of_number.append(0)
         rec = Record(array_of_number)
-        print(array_of_number)
-        file.write(rec.to_bytes())
-    file.close()
+        t.write_record(rec)
 
 
-def transform_existing_file_to_bin(path):
-    file_bin = open("tasma3.bin", "wb")
+def transform_existing_file_to_bin(path, t):
     file_txt = open(path)
-
     for line in file_txt.readlines():
         line.replace("\n", "")
         numbers = line.split(" ")
         numbers = [int(number) for number in numbers]
         print(numbers)
         rec = Record(numbers)
-        file_bin.write(rec.to_bytes())
-
-    file_bin.close()
+        t.write_record(rec)
     file_txt.close()
 
 
-def user_input_to_bin(nr):
-    file_bin = open("tasma3.bin", "wb")
+def user_input_to_bin(nr, t):
     for i in range(0, int(nr)):
         numbers_per_record = input("Enter number of numbers per record: \n")
         array_of_number = []
@@ -77,8 +126,7 @@ def user_input_to_bin(nr):
             number = input("Number: \n")
             array_of_number.append(int(number))
         rec = Record(array_of_number)
-        file_bin.write(rec.to_bytes())
-    file_bin.close()
+        t.write_record(rec)
 
 
 if __name__ == "__main__":
@@ -87,15 +135,23 @@ if __name__ == "__main__":
     print("2. Use existing file.")
     print("3. Write records from keyboard.")
 
+    tape3 = SeqFile("t3.bin", 200, 16 * 4)
+
     user_choice = input("Choose option: \n")
     if int(user_choice) == 1:
         number_of_records = input("Enter number of records: \n")
-        generate_file(int(number_of_records))
+        generate_file(int(number_of_records), tape3)
     elif int(user_choice) == 2:
         path = input("Enter full path to file: \n")
-        transform_existing_file_to_bin(path)
+        transform_existing_file_to_bin(path, tape3)
     elif int(user_choice) == 3:
         user_number_of_records = input("Enter number of records, which you want enter: \n")
-        user_input_to_bin(int(user_number_of_records))
+        user_input_to_bin(int(user_number_of_records), tape3)
 
-    print("done")
+    tape1 = SeqFile("t1.bin", 200, 16*4)
+    tape2 = SeqFile("t2.bin", 200, 16*4)
+
+    tape1.close_file()
+    tape2.close_file()
+    tape3.close_file()
+
