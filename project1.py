@@ -15,21 +15,18 @@ class Record:
         self.key = sum(self.array_of_number)
 
     def from_bytes(self, bytes):
-        self.key = int.from_bytes(bytes[0:4], byteorder="little")
         self.array_of_number = []
         for i in range(4, len(bytes), 4):
             self.array_of_number.append(int.from_bytes(bytes[i:i+4], byteorder="little"))
 
     def to_bytes(self):
         bytes = bytearray()
-        bytes.extend(self.key.to_bytes(4, byteorder="little"))
         for i in range(0, len(self.array_of_number)):
             bytes.extend(self.array_of_number[i].to_bytes(4, byteorder="little"))
         return bytes
 
 
 class SeqFile:
-    file_name = ""
     byte_buffor = bytearray()
     count_read_block = 0
     count_write_block = 0
@@ -39,7 +36,7 @@ class SeqFile:
 
     def __init__(self, file_name, size_of_block, record_size):
         self.file_name = file_name
-        file = open(self.file_name, "w")
+        open(self.file_name, "w")
         self.file = open(self.file_name, "rb+")
         self.records_per_block = int(size_of_block / record_size)
         self.record_size = record_size
@@ -96,14 +93,15 @@ class SeqFile:
 
 def generate_file(nr, t):
     for i in range(0, nr):
-        number_of_numbers_in_record = random.randint(1, 15)
+        numbers_in_record = random.randint(1, 15)
         array_of_number = []
-        for i in range(0, number_of_numbers_in_record):
+        for i in range(0, numbers_in_record):
             array_of_number.append(random.randint(0, 10))
-        for i in range(0, 15-number_of_numbers_in_record):
+        for i in range(0, 15-numbers_in_record):
             array_of_number.append(0)
-        rec = Record(array_of_number)
-        t.write_record(rec)
+        print(array_of_number)
+        t.write_record(Record(array_of_number))
+    t.end_writing()
 
 
 def transform_existing_file_to_bin(path, t):
@@ -115,6 +113,7 @@ def transform_existing_file_to_bin(path, t):
         print(numbers)
         rec = Record(numbers)
         t.write_record(rec)
+    t.end_writing()
     file_txt.close()
 
 
@@ -125,18 +124,22 @@ def user_input_to_bin(nr, t):
         for i in range(0, int(numbers_per_record)):
             number = input("Number: \n")
             array_of_number.append(int(number))
-        rec = Record(array_of_number)
-        t.write_record(rec)
+        t.write_record(Record(array_of_number))
+    t.end_writing()
+
+
+def natural_merge(t1, t2, t3):
+    pass
 
 
 if __name__ == "__main__":
+    block_size = 200
+    tape3 = SeqFile("t3.bin", block_size, 15 * 4)
+
     print("--------------MENU--------------")
     print("1. Generate file.")
     print("2. Use existing file.")
     print("3. Write records from keyboard.")
-
-    tape3 = SeqFile("t3.bin", 200, 16 * 4)
-
     user_choice = input("Choose option: \n")
     if int(user_choice) == 1:
         number_of_records = input("Enter number of records: \n")
@@ -148,10 +151,11 @@ if __name__ == "__main__":
         user_number_of_records = input("Enter number of records, which you want enter: \n")
         user_input_to_bin(int(user_number_of_records), tape3)
 
-    tape1 = SeqFile("t1.bin", 200, 16*4)
-    tape2 = SeqFile("t2.bin", 200, 16*4)
+    tape1 = SeqFile("t1.bin", block_size, 15*4)
+    tape2 = SeqFile("t2.bin", block_size, 15*4)
+
+    natural_merge(tape1, tape2, tape3)
 
     tape1.close_file()
     tape2.close_file()
     tape3.close_file()
-
