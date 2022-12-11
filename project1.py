@@ -256,7 +256,7 @@ if __name__ == "__main__":
         user_number_of_records = input("Enter number of records, which you want enter: \n")
         user_input_to_bin(int(user_number_of_records), tape3)
 
-    print("--------------BEFORE OF SORTING--------------")
+    print("--------------BEFORE SORTING--------------")
     print_t3(tape3)
     print()
 
@@ -276,7 +276,7 @@ if __name__ == "__main__":
             print(f"--------------AFTER PHASE {phases}--------------")
             print_t3(tape3)
             print()
-    print("--------------AFTER OF SORTING--------------")
+    print("--------------AFTER SORTING--------------")
     print_t3(tape3)
     print()
     print(f"Phases: {phases}")
