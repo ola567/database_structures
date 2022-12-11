@@ -324,5 +324,5 @@ if __name__ == "__main__":
     print(f"Phases: {phases}")
     print(f"Read_block: {block_reads}")
     print(f"Write_block: {block_writes}")
+    print(f"Overall block operations: {block_reads+block_writes}")
     tape3.close_file()
-    print("done")
