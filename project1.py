@@ -99,6 +99,8 @@ class SeqFile:
         self.byte_buffor = bytearray()
         self.count_read_record = 0
         self.count_read_record = 0
+        self.count_read_block = 0
+        self.count_read_block = 0
 
     def close_file(self):
         self.file.close()
@@ -115,6 +117,8 @@ def generate_file(nr, t):
         t.write_record(Record(array_of_number))
     t.records_in_file = nr
     t.end_writing()
+    t.count_read_block = 0
+    t.count_write_block = 0
 
 
 def transform_existing_file_to_bin(path, t):
@@ -129,6 +133,8 @@ def transform_existing_file_to_bin(path, t):
         t.write_record(rec)
     t.records_in_file = n
     t.end_writing()
+    t.count_read_block = 0
+    t.count_write_block = 0
     file_txt.close()
 
 
@@ -141,6 +147,8 @@ def user_input_to_bin(nr, t):
             array_of_number.append(int(number))
         t.write_record(Record(array_of_number))
     t.records_in_file = nr
+    t.count_read_block = 0
+    t.count_write_block = 0
     t.end_writing()
 
 
@@ -172,34 +180,54 @@ def natural_merge(t1, t2, t3):
     t3.reset_to_write()
     rec_t1 = t1.read_record()
     rec_t2 = t2.read_record()
-    while t1.count_read_record <= t1.records_in_file and t2.count_read_record <= t2.records_in_file:
+
+    tape1_ended = False
+    tape2_ended = False
+    while (not tape1_ended) and (not tape2_ended):
         if rec_t1.key <= rec_t2.key:
             t3.write_record(rec_t1)
             store_prev_key1 = rec_t1.key
-            rec_t1 = t1.read_record()
-
-            if t1.count_read_record <= t1.records_in_file and store_prev_key1 > rec_t1.key:
-                t3.write_record(rec_t2)
-                store_prev_key2 = rec_t2.key
-                rec_t2 = t2.read_record()
-                while t2.count_read_record <= t2.records_in_file and store_prev_key2 <= rec_t2.key:
+            if t1.count_read_record != t1.records_in_file:
+                rec_t1 = t1.read_record()
+                if store_prev_key1 > rec_t1.key:
                     t3.write_record(rec_t2)
                     store_prev_key2 = rec_t2.key
-                    rec_t2 = t2.read_record()
+                    if t2.count_read_record != t2.records_in_file:
+                        rec_t2 = t2.read_record()
+                        while t2.count_read_record <= t2.records_in_file and store_prev_key2 <= rec_t2.key:
+                            t3.write_record(rec_t2)
+                            store_prev_key2 = rec_t2.key
+                            if t2.count_read_record != t2.records_in_file:
+                                rec_t2 = t2.read_record()
+                            else:
+                                tape2_ended = True
+                                break
+            else:
+                tape1_ended = True
+                break
         else:
             t3.write_record(rec_t2)
             store_prev_key2 = rec_t2.key
-            rec_t2 = t2.read_record()
-            if t2.count_read_record <= t2.records_in_file and store_prev_key2 > rec_t2.key:
-                t3.write_record(rec_t1)
-                store_prev_key1 = rec_t1.key
-                rec_t1 = t1.read_record()
-                while t1.count_read_record <= t1.records_in_file and store_prev_key1 <= rec_t1.key:
+            if t2.count_read_record != t2.records_in_file:
+                rec_t2 = t2.read_record()
+                if store_prev_key2 > rec_t2.key:
                     t3.write_record(rec_t1)
                     store_prev_key1 = rec_t1.key
-                    rec_t1 = t1.read_record()
+                    if t1.count_read_record != t1.records_in_file:
+                        rec_t1 = t1.read_record()
+                        while t1.count_read_record <= t1.records_in_file and store_prev_key1 <= rec_t1.key:
+                            t3.write_record(rec_t1)
+                            store_prev_key1 = rec_t1.key
+                            if t1.count_read_record != t1.records_in_file:
+                                rec_t1 = t1.read_record()
+                            else:
+                                tape1_ended = True
+                                break
+            else:
+                tape2_ended = True
+                break
 
-    if not t1.count_read_record <= t1.records_in_file:
+    if tape1_ended:
         t3.write_record(rec_t2)
         while t2.count_read_record < t2.records_in_file:
             t3.write_record(t2.read_record())
@@ -208,16 +236,20 @@ def natural_merge(t1, t2, t3):
         while t1.count_read_record < t1.records_in_file:
             rec = t1.read_record()
             t3.write_record(rec)
+    save_t1_read = t1.count_read_block
+    save_t2_read = t2.count_read_block
+    save_t1_write = t1.count_write_block
+    save_t2_write = t2.count_write_block
     t1.reset_to_write()
     t2.reset_to_write()
     t3.end_writing()
-    return t3
+    return t3, save_t1_read, save_t2_read, save_t1_write, save_t2_write
 
 
 def print_t3(t3):
     for i in range(0, t3.records_in_file):
         record = t3.read_record()
-        print(record.array_of_number, end = f" key: {record.key} \n")
+        print(record.array_of_number, end=f" key: {record.key} \n")
     t3.reset_tape3()
 
 
@@ -239,7 +271,10 @@ def is_sorted(t3):
 
 if __name__ == "__main__":
     block_size = 200
-    tape3 = SeqFile("t3.bin", block_size, 15 * 4)
+    record_size = 15 * 4
+    block_reads = 0
+    block_writes = 0
+    tape3 = SeqFile("t3.bin", block_size, record_size)
 
     print("--------------MENU--------------")
     print("1. Generate file.")
@@ -264,14 +299,21 @@ if __name__ == "__main__":
     phases = 0
     while not is_sorted(tape3):
         phases += 1
-        tape1 = SeqFile("t1.bin", block_size, 15 * 4)
-        tape2 = SeqFile("t2.bin", block_size, 15 * 4)
+        tape1 = SeqFile("t1.bin", block_size, record_size)
+        tape2 = SeqFile("t2.bin", block_size, record_size)
         tape1, tape2 = distribute_files(tape1, tape2, tape3)
-        tape3 = natural_merge(tape1, tape2, tape3)
+        block_reads += tape1.count_read_block + tape2.count_read_block + tape3.count_read_block
+        block_writes += tape1.count_write_block + tape2.count_write_block + tape3.count_write_block
+        tape1.count_write_block = 0
+        tape2.count_write_block = 0
+        tape3, rt1, rt2, wt1, wt2 = natural_merge(tape1, tape2, tape3)
+        block_reads += rt1 + rt2 + tape3.count_read_block
+        block_writes += wt1 + wt2 + tape3.count_write_block
         tape1.close_file()
         tape2.close_file()
         os.remove(tape1.file_name)
         os.remove(tape2.file_name)
+        tape3.count_write_block = 0
         if if_want_each_phase == 'y':
             print(f"--------------AFTER PHASE {phases}--------------")
             print_t3(tape3)
@@ -280,7 +322,7 @@ if __name__ == "__main__":
     print_t3(tape3)
     print()
     print(f"Phases: {phases}")
-    print(f"Read_block: {tape3.count_read_block}")
-    print(f"Write_block: {tape3.count_write_block}")
+    print(f"Read_block: {block_reads}")
+    print(f"Write_block: {block_writes}")
     tape3.close_file()
-    pass
+    print("done")
