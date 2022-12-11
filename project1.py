@@ -1,4 +1,5 @@
 import copy
+import os
 import random
 
 
@@ -16,8 +17,9 @@ class Record:
 
     def from_bytes(self, bytes):
         self.array_of_number = []
-        for i in range(4, len(bytes), 4):
+        for i in range(0, len(bytes), 4):
             self.array_of_number.append(int.from_bytes(bytes[i:i+4], byteorder="little"))
+        self.key = sum(self.array_of_number)
 
     def to_bytes(self):
         bytes = bytearray()
@@ -27,12 +29,12 @@ class Record:
 
 
 class SeqFile:
-    byte_buffor = bytearray()
     count_read_block = 0
     count_write_block = 0
     count_read_record = 0
     count_write_record = 0
     records_per_block = 0
+    records_in_file = 0
 
     def __init__(self, file_name, size_of_block, record_size):
         self.file_name = file_name
@@ -41,6 +43,7 @@ class SeqFile:
         self.records_per_block = int(size_of_block / record_size)
         self.record_size = record_size
         self.size_of_block = size_of_block
+        self.byte_buffor = bytearray()
 
     def read_record(self):
         index = self.count_read_record % self.records_per_block
@@ -79,13 +82,23 @@ class SeqFile:
     def end_writing(self):
         self.write_block()
         self.file.seek(0)
+        self.byte_buffor = bytearray()
+        self.records_in_file = self.count_write_record
         self.count_write_record = 0
-        self.count_read_block = 0
+        self.count_read_record = 0
 
     def reset_to_write(self):
         self.file.seek(0)
         self.count_write_record = 0
+        self.count_write_block = 0
         self.count_read_block = 0
+        self.byte_buffor = bytearray()
+
+    def reset_tape3(self):
+        self.file.seek(0)
+        self.byte_buffor = bytearray()
+        self.count_read_record = 0
+        self.count_read_record = 0
 
     def close_file(self):
         self.file.close()
@@ -99,20 +112,22 @@ def generate_file(nr, t):
             array_of_number.append(random.randint(0, 10))
         for i in range(0, 15-numbers_in_record):
             array_of_number.append(0)
-        print(array_of_number)
         t.write_record(Record(array_of_number))
+    t.records_in_file = nr
     t.end_writing()
 
 
 def transform_existing_file_to_bin(path, t):
     file_txt = open(path)
+    n = 0
     for line in file_txt.readlines():
+        n += 1
         line.replace("\n", "")
         numbers = line.split(" ")
         numbers = [int(number) for number in numbers]
-        print(numbers)
         rec = Record(numbers)
         t.write_record(rec)
+    t.records_in_file = n
     t.end_writing()
     file_txt.close()
 
@@ -125,11 +140,101 @@ def user_input_to_bin(nr, t):
             number = input("Number: \n")
             array_of_number.append(int(number))
         t.write_record(Record(array_of_number))
+    t.records_in_file = nr
     t.end_writing()
 
 
+def distribute_files(t1, t2, t3):
+    swap = False
+    rec_first = t3.read_record()
+    t1.write_record(rec_first)
+    while t3.count_read_record < t3.records_in_file:
+        rec_second = t3.read_record()
+        if not swap:
+            if rec_first.key <= rec_second.key:
+                t1.write_record(rec_second)
+            else:
+                t2.write_record(rec_second)
+                swap = True
+        else:
+            if rec_first.key <= rec_second.key:
+                t2.write_record(rec_second)
+            else:
+                t1.write_record(rec_second)
+                swap = False
+        rec_first = rec_second
+    t1.end_writing()
+    t2.end_writing()
+    return t1, t2
+
+
 def natural_merge(t1, t2, t3):
-    pass
+    t3.reset_to_write()
+    rec_t1 = t1.read_record()
+    rec_t2 = t2.read_record()
+    while t1.count_read_record <= t1.records_in_file and t2.count_read_record <= t2.records_in_file:
+        if rec_t1.key <= rec_t2.key:
+            t3.write_record(rec_t1)
+            store_prev_key1 = rec_t1.key
+            rec_t1 = t1.read_record()
+
+            if t1.count_read_record <= t1.records_in_file and store_prev_key1 > rec_t1.key:
+                t3.write_record(rec_t2)
+                store_prev_key2 = rec_t2.key
+                rec_t2 = t2.read_record()
+                while t2.count_read_record <= t2.records_in_file and store_prev_key2 <= rec_t2.key:
+                    t3.write_record(rec_t2)
+                    store_prev_key2 = rec_t2.key
+                    rec_t2 = t2.read_record()
+        else:
+            t3.write_record(rec_t2)
+            store_prev_key2 = rec_t2.key
+            rec_t2 = t2.read_record()
+            if t2.count_read_record <= t2.records_in_file and store_prev_key2 > rec_t2.key:
+                t3.write_record(rec_t1)
+                store_prev_key1 = rec_t1.key
+                rec_t1 = t1.read_record()
+                while t1.count_read_record <= t1.records_in_file and store_prev_key1 <= rec_t1.key:
+                    t3.write_record(rec_t1)
+                    store_prev_key1 = rec_t1.key
+                    rec_t1 = t1.read_record()
+
+    if not t1.count_read_record <= t1.records_in_file:
+        t3.write_record(rec_t2)
+        while t2.count_read_record < t2.records_in_file:
+            t3.write_record(t2.read_record())
+    else:
+        t3.write_record(rec_t1)
+        while t1.count_read_record < t1.records_in_file:
+            rec = t1.read_record()
+            t3.write_record(rec)
+    t1.reset_to_write()
+    t2.reset_to_write()
+    t3.end_writing()
+    return t3
+
+
+def print_t3(t3):
+    for i in range(0, t3.records_in_file):
+        record = t3.read_record()
+        print(record.array_of_number, end = f" key: {record.key} \n")
+    t3.reset_tape3()
+
+
+def is_sorted(t3):
+    rec_first = t3.read_record()
+    i = 0
+    while t3.count_read_record <= t3.records_in_file:
+        rec_second = t3.read_record()
+        if rec_first.key > rec_second.key:
+            break
+        i += 1
+        rec_first = rec_second
+    t3.reset_tape3()
+    if i == t3.records_in_file - 1:
+        return True
+    else:
+        return False
 
 
 if __name__ == "__main__":
@@ -151,11 +256,31 @@ if __name__ == "__main__":
         user_number_of_records = input("Enter number of records, which you want enter: \n")
         user_input_to_bin(int(user_number_of_records), tape3)
 
-    tape1 = SeqFile("t1.bin", block_size, 15*4)
-    tape2 = SeqFile("t2.bin", block_size, 15*4)
+    print("--------------BEFORE OF SORTING--------------")
+    print_t3(tape3)
+    print()
 
-    natural_merge(tape1, tape2, tape3)
-
-    tape1.close_file()
-    tape2.close_file()
+    if_want_each_phase = input("Do you want to see file after each phase of sorting? (y/n)")
+    phases = 0
+    while not is_sorted(tape3):
+        phases += 1
+        tape1 = SeqFile("t1.bin", block_size, 15 * 4)
+        tape2 = SeqFile("t2.bin", block_size, 15 * 4)
+        tape1, tape2 = distribute_files(tape1, tape2, tape3)
+        tape3 = natural_merge(tape1, tape2, tape3)
+        tape1.close_file()
+        tape2.close_file()
+        os.remove(tape1.file_name)
+        os.remove(tape2.file_name)
+        if if_want_each_phase == 'y':
+            print(f"--------------AFTER PHASE {phases}--------------")
+            print_t3(tape3)
+            print()
+    print("--------------AFTER OF SORTING--------------")
+    print_t3(tape3)
+    print()
+    print(f"Phases: {phases}")
+    print(f"Read_block: {tape3.count_read_block}")
+    print(f"Write_block: {tape3.count_write_block}")
     tape3.close_file()
+    pass
