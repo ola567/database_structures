@@ -1,1 +1,0 @@
-# struktury-baz-danych
